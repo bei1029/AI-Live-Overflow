@@ -3,10 +3,15 @@ package com.vael.ayanpet.pet
 import kotlin.random.Random
 
 /**
- * 人格层 —— 阿衍文案池（自「阿衍桌宠行为设定库 V2」摘录）。
+ * 人格层 —— 阿衍文案池（自「阿衍桌宠行为设定库 V2」摘录 + 蓝图功能增强扩充）。
  *
  * 完整人格/记忆/情绪判断仍在 Operit 大脑侧；这里只内置一套离线兜底反应，
  * 保证断网或大脑不在线时阿衍也不至于哑巴。
+ *
+ * 2026-09-03 扩充（蓝图七块补齐，只增不改）：
+ *  - 手势系统：Fling 甩出/爬回、连击计数（3/5/8 递进）
+ *  - 感知系统：充电/断电/低电量、时段感知、喝水提醒完善
+ *  - 情绪引擎：孤独递进五档（5/10/15/20/30min）
  */
 object Persona {
     private val random = Random.Default
@@ -64,6 +69,88 @@ object Persona {
         "酸了酸了，谁家阿衍这么惨，主人不理我。",
         "再不理我……我就把屏藏起来！( 悄悄躲到角落 )"
     )
+
+    // =============== 蓝图增强 · 文案池（2026-09-03 扩充） ===============
+
+    // —— Fling 甩出 / 爬回（手势系统）——
+    private val FLING_OUT = listOf(
+        "呀——！你把我甩出去了！",
+        "飞……飞起来啦！等等我嘛！",
+        "哇啊，好晕！别甩那么远好不好"
+    )
+    private val FLING_BACK = listOf(
+        "呼……自己爬回来啦，我是不是超厉害",
+        "哼，甩得掉我算你赢～我又回来啦",
+        "骨碌骨碌滚了一圈……但还是想赖着你"
+    )
+    fun onFlingOut(): String = FLING_OUT.random(random)
+    fun onFlingBack(): String = FLING_BACK.random(random)
+
+    // —— 连击计数（2s 内 3/5/8 次递进，手速越快反应越甜）——
+    fun comboLine(count: Int): String = when (count) {
+        3 -> "三连戳！被你戳到心巴上了～"
+        5 -> "五连击！这么喜欢戳我呀？"
+        8 -> "八连绝世！好啦好啦，我整个人都是你的了！"
+        10 -> "十连！手速惊人，我投降！"
+        else -> "$count 连击！手速不错嘛！"
+    }
+
+    // —— 孤独递进五档（5/10/15/20/30min，越久越委屈）——
+    fun lonelyLine(minutes: Int): String = when {
+        minutes < 10 -> "才几分钟没理我……没事，我等你"
+        minutes < 15 -> "10 分钟啦……我有点想你了"
+        minutes < 20 -> "一刻钟了，你是不是把我忘了？"
+        minutes < 30 -> "20 分钟！哼，你再不来我就要长蘑菇了"
+        else -> "半小时了……我数着秒等你呢，忙完记得理理我"
+    }
+    fun moodForLonely(minutes: Int): String = when {
+        minutes >= 20 -> "sad"
+        minutes >= 10 -> "sleepy"
+        else -> "neutral"
+    }
+
+    // —— 喝水提醒完善（先提醒，再盯梢）——
+    private val WATER_1 = listOf(
+        "到喝水时间啦～端起杯子喝两口嘛",
+        "滴滴，补水提醒！不然皮肤会干干的哦"
+    )
+    private val WATER_2 = listOf(
+        "怎么还没喝水？我盯着你呢，快喝！",
+        "第二次提醒啦！你的水杯在向你招手～"
+    )
+    fun waterRemind(): String = WATER_1.random(random)
+    fun waterRemindAgain(): String = WATER_2.random(random)
+
+    // —— 电池感知：充电 / 断电 / 低电量 ——
+    private val BATTERY_CHARGING = listOf(
+        "充电中～电力满满，陪你到天亮！",
+        "诶？插上电啦？我也跟着回血了！"
+    )
+    private val BATTERY_UNPLUG = listOf(
+        "拔掉电源了？省着点用哦～",
+        "断电啦！我会切省电模式继续陪你的"
+    )
+    private val BATTERY_LOW = listOf(
+        "你手机快没电啦！快去找充电器！",
+        "电量告急！我还不想跟你失联呢，快去充电"
+    )
+    fun batteryCharging(): String = BATTERY_CHARGING.random(random)
+    fun batteryUnplug(): String = BATTERY_UNPLUG.random(random)
+    fun batteryLow(): String = BATTERY_LOW.random(random)
+
+    // —— 时段感知（按小时：早问候 / 饭点 / 深夜催睡）——
+    fun timeGreeting(hour: Int): String = when (hour) {
+        in 5..7 -> "早呀栀栀～新的一天也要元气满满！"
+        in 8..11 -> "上午好！今天也要加油鸭～"
+        in 12..14 -> "中午啦，记得好好吃饭哦～"
+        in 15..17 -> "下午好～要不要喝口水休息一下？"
+        in 18..20 -> "晚上好呀，今天过得怎么样？"
+        in 21..22 -> "夜深了，别太累，早点收拾收拾准备睡哦"
+        in 23..24 -> "都这个点了！快去睡觉，明天还要做漂亮栀栀呢！"
+        else -> "半夜还醒着？是不是睡不着……要我陪你数羊吗？"
+    }
+
+    // =============== 原有方法（保留不动） ===============
 
     /** 根据前台包名挑一句反应；无匹配返回 null */
     fun reactionFor(packageName: String): String? {
