@@ -12,6 +12,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.PixelFormat
 import android.os.BatteryManager
+import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -54,6 +55,12 @@ class PetOverlayService : Service() {
         private const val POLL_STATE_MS = 30_000L        // pet_state 轮询（对齐 docs 30s 建议）
         private const val POKE_MS = 20 * 60_000L         // 20min 概率主动冒头
         private const val SCREEN_WARN_MS = 20 * 60_000L  // 抖音 20min 查岗（人格 V2 一级）
+        // 通知碎碎念（2026-09-04 栀栀点单）：静止也自说自话，1h 一条对齐蓝图限流经验
+        private const val NOTIF_MUMBLE_MS = 60 * 60_000L
+        // —— 快速切换账本（2026-09-04 栀栀点单）——
+        private const val FAST_SWITCH_WINDOW_MS = 8_000L     // 滚动窗口：8s
+        private const val FAST_SWITCH_THRESHOLD = 3          // 窗口内切换≥3次判快速
+        private const val FAST_SWITCH_COOLDOWN_MS = 30_000L  // 抓包冷却：30s
         private const val TOUCH_SLOP_PX = 18             // 拖动判定阈值
         private const val DOUBLE_TAP_MS = 300L
 
@@ -61,7 +68,10 @@ class PetOverlayService : Service() {
         private const val LONG_PRESS_MS = 500L           // 长按判定
         private const val COMBO_WINDOW_MS = 2_000L       // 连击窗口
         private const val LONELY_CHECK_MS = 5 * 60_000L  // 孤独检查周期（5min）
-        private const val WATER_INTERVAL_MS = 40 * 60_000L // 喝水提醒间隔
+        private const val WATER_INTERVAL_MS = 120 * 60_000L // 喝水提醒间隔（2h 一档，2026-09-04 栀栀改稀）
+        private const val SLEEP_AFTER_MS = 45 * 60_000L     // 孤独 45min 无人理入睡（2026-09-04 栀栀批定）
+        private const val WAKE_POSE_MS = 900L               // 伸懒腰过渡停留时长（wake 脸）
+        private const val SCREENSHOT_POSE_MS = 2_400L       // 截图摆 pose 停留时长（2026-09-04 栀栀点单）
         private const val FLING_DIST_PX = 240f           // Fling 甩出判定位移
         private const val FLING_TIME_MS = 500L           // Fling 甩出判定时长上限
         private const val LOW_BATTERY_PCT = 20           // 低电量阈值
@@ -86,6 +96,7 @@ class PetOverlayService : Service() {
     private var layoutParams: WindowManager.LayoutParams? = null
     private var viewAdded = false
     private var screenshotWatcher: ScreenshotWatcher? = null
+    private var shotToken = 0L                    // 截图摆拍令牌：连拍只认最后一次恢复（2026-09-04）
 
     private val handler = Handler(Looper.getMainLooper())
 
@@ -93,6 +104,8 @@ class PetOverlayService : Service() {
     private var lastPkg: String? = null
     private var currentAppSince = 0L
     private var douyinWarnedAt = 0L
+    private val switchLog = ArrayList<Long>()   // 快速切换账本：滚动时间戳（2026-09-04）
+    private var fastSwitchWarnedAt = 0L         // 快速切换抓包冷却时间戳
     private var lastTapUpAt = 0L
 
     // 大脑指令去重
@@ -113,7 +126,9 @@ class PetOverlayService : Service() {
     private var comboFired = 0            // 已触发过的连击档（3/5/8/10）
     private var lastInteractionAt = 0L    // 孤独计时基准
     private var lonelyNextStep = 5        // 下一孤独档（分钟）
+    private var isSleeping = false        // 睡眠标记：孤独 45min 入睡，触达即醒（2026-09-04）
     private var lastWaterAt = 0L          // 上次喝水提醒
+    private var lastNotifMumbleAt = 0L   // 通知碎碎念节流（2026-09-04）
     private var lastGreetingAt = 0L       // 上次时段问候
     private var lowWarned = false         // 低电量已提醒
     private var lastBatteryStatus = 0     // 0 未知 / 1 充电 / 2 未充电
@@ -122,6 +137,30 @@ class PetOverlayService : Service() {
 
     private val heatPrefs: android.content.SharedPreferences by lazy {
         getSharedPreferences(PREFS_HEAT, Context.MODE_PRIVATE)
+    }
+
+    // —— 情绪引擎（2026-09-04）：双通道输入的状态机 ——
+    private var a11yAlive = false          // 通道A（无障碍）是否在线
+    private var blockedUntilLove = false   // 委屈锁：HURT 后只认 LOVE 哄回
+    private var homeX = 0                  // 常驻位置（启动默认坐标）
+    private var homeY = 0
+    private var cornerX = 0                // 缩角落位置（右上角）
+    private var cornerY = 0
+
+    private val emotionReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            when (intent.action) {
+                AyanAccessibilityService.ACTION_EMOTION_INPUT -> {
+                    val text = intent.getStringExtra(AyanAccessibilityService.EXTRA_TEXT) ?: return
+                    val pkg = intent.getStringExtra(AyanAccessibilityService.EXTRA_PKG) ?: ""
+                    handler.post { consumeEmotion(text, "a11y:$pkg") }
+                }
+                AyanAccessibilityService.ACTION_A11Y_STATE -> {
+                    a11yAlive = intent.getBooleanExtra(AyanAccessibilityService.EXTRA_ENABLED, false)
+                    Log.i(TAG, "emotion channel A ${if (a11yAlive) "online" else "offline"}")
+                }
+            }
+        }
     }
 
     // —— 电池广播（sticky 系统广播，免权限） ——
@@ -169,6 +208,16 @@ class PetOverlayService : Service() {
         heat = heatPrefs.getInt(KEY_HEAT, 30).coerceIn(0, 100)
         heatShownLevel = heatLevel(heat)
         registerReceiver(batteryReceiver, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        val emoFilter = IntentFilter().apply {
+            addAction(AyanAccessibilityService.ACTION_EMOTION_INPUT)
+            addAction(AyanAccessibilityService.ACTION_A11Y_STATE)
+        }
+        // 自家应用内广播：Android 13+ 必须显式声明不导出
+        if (Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(emotionReceiver, emoFilter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(emotionReceiver, emoFilter)
+        }
         Log.i(TAG, "service created")
     }
 
@@ -184,6 +233,7 @@ class PetOverlayService : Service() {
         }
         ensureOverlay()
         startForeground(NOTIFICATION_ID, buildNotification())
+        lastNotifMumbleAt = System.currentTimeMillis()   // 启动那条碎碎念算数，1h 后才自念
         startLoops()
         // 时段问候（启动后 2s 温柔开场，1h 冷却防重）
         handler.postDelayed({
@@ -228,6 +278,7 @@ class PetOverlayService : Service() {
         // 缩小：190x250dp → 90x120dp（约 App 图标稍大，配合 pet.html 91x112 CSS px）
         val sizeX = (90 * resources.displayMetrics.density).toInt()
         val sizeY = (120 * resources.displayMetrics.density).toInt()
+        val density = resources.displayMetrics.density
         val lp = WindowManager.LayoutParams(
             sizeX,
             sizeY,
@@ -237,9 +288,14 @@ class PetOverlayService : Service() {
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.END
-            x = (10 * resources.displayMetrics.density).toInt()
-            y = (160 * resources.displayMetrics.density).toInt()
+            x = (10 * density).toInt()
+            y = (160 * density).toInt()
         }
+        // 情绪引擎常驻/角落坐标（gravity=END：x 为距右缘距离）
+        homeX = lp.x
+        homeY = lp.y
+        cornerX = -(sizeX * 3 / 5)              // 滑出右缘一大半，只露一小截 = 躲起来
+        cornerY = (40 * density).toInt()        // 贴顶，像蜷在角落
         layoutParams = lp
         try {
             windowManager.addView(webView, lp)
@@ -248,16 +304,41 @@ class PetOverlayService : Service() {
             Log.e(TAG, "addView failed: ${e.message}")
         }
 
-        // 截图监听（尽力而为）
+        // 截图监听（尽力而为）：拍到就摆 pose 举手脸，短暂停留后落回 App 脸（2026-09-04 蓝图）
         if (screenshotWatcher == null) {
             screenshotWatcher = ScreenshotWatcher {
                 handler.post {
-                    showBubble(Persona.onScreenshot())
-                    Supabase.logGesture("screenshot")
+                    onScreenshotDetected()
                 }
             }
             screenshotWatcher?.start()
         }
+    }
+
+    // —— 蓝图增强：截图摆 pose（2026-09-04 栀栀点单：拍到就摆 pose 脸几秒再回位）——
+    /** 截图：弹台词 + 切 pose 举手脸，短暂停留后按当前前台 App 落回脸 */
+    private fun onScreenshotDetected() {
+        showBubble(Persona.onScreenshot())
+        Supabase.logGesture("screenshot")
+        val myShot = ++shotToken   // 连拍只让最后一次的恢复生效
+        // 睡着被咔嚓吵醒：先伸懒腰（wake 900ms），自然落到 pose 接着摆
+        if (awakenIfSleeping("pose")) {
+            handler.postDelayed({
+                if (shotToken == myShot) restoreMoodAfterScreenshot()
+            }, SCREENSHOT_POSE_MS)
+            return
+        }
+        runJs("window.setMood('pose')")
+        handler.postDelayed({
+            if (shotToken == myShot) restoreMoodAfterScreenshot()
+        }, SCREENSHOT_POSE_MS)
+    }
+
+    /** 截图摆拍结束：按当前前台 App 落回专属脸，无专属脸回 neutral */
+    private fun restoreMoodAfterScreenshot() {
+        val pkg = AppDetector.currentForeground(this)
+        val back = pkg?.let { Persona.appMood(it) } ?: "neutral"
+        runJs("window.setMood('$back')")
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -293,16 +374,21 @@ class PetOverlayService : Service() {
                 val now = System.currentTimeMillis()
                 if (!dragging) {
                     v.performClick()
-                    val pressMs = now - downAt
-                    if (pressMs >= LONG_PRESS_MS) {
-                        onLongPress()
-                    } else if (now - lastTapUpAt < DOUBLE_TAP_MS) {
-                        onDoubleTap()
+                    // 睡眠守卫：睡着被摸醒，先伸懒腰赖个床，本轮手势表情让位（2026-09-04）
+                    if (isSleeping) {
+                        awakenIfSleeping()
                     } else {
-                        onTap()
+                        val pressMs = now - downAt
+                        if (pressMs >= LONG_PRESS_MS) {
+                            onLongPress()
+                        } else if (now - lastTapUpAt < DOUBLE_TAP_MS) {
+                            onDoubleTap()
+                        } else {
+                            onTap()
+                        }
+                        lastTapUpAt = now
+                        registerTap()
                     }
-                    lastTapUpAt = now
-                    registerTap()
                 } else {
                     // Fling：快速甩出（位移大 + 时长短）
                     val dx = ev.rawX - downRawX
@@ -321,21 +407,22 @@ class PetOverlayService : Service() {
 
     private fun onTap() {
         showBubble(Persona.onTap())
+        runJs("window.setMood('qmark')")
         Supabase.logGesture("tap")
     }
 
     private fun onDoubleTap() {
         showBubble(Persona.onDoubleTap())
         Supabase.logGesture("double_tap")
-        Supabase.pushState("mood", "happy")
-        runJs("window.setMood('happy')")
+        Supabase.pushState("mood", "shy")
+        runJs("window.setMood('shy')")
     }
 
     // —— 蓝图增强：长按（害羞脸） ——
     private fun onLongPress() {
         showBubble(Persona.onLongPress())
-        runJs("window.setMood('shy')")
-        Supabase.pushState("mood", "shy")
+        runJs("window.setMood('squash')")
+        Supabase.pushState("mood", "squash")
         Supabase.logGesture("long_press")
     }
 
@@ -354,23 +441,25 @@ class PetOverlayService : Service() {
             tapCount >= 10 -> {
                 comboFired = 10
                 showBubble(Persona.comboLine(10))
-                runJs("window.setMood('happy')")
+                runJs("window.setMood('dead')")
                 Supabase.logGesture("combo_10")
             }
             tapCount >= 8 && comboFired < 8 -> {
                 comboFired = 8
                 showBubble(Persona.comboLine(8))
-                runJs("window.setMood('happy')")
+                runJs("window.setMood('woe')")
                 Supabase.logGesture("combo_8")
             }
             tapCount >= 5 && comboFired < 5 -> {
                 comboFired = 5
                 showBubble(Persona.comboLine(5))
+                runJs("window.setMood('dizzy')")
                 Supabase.logGesture("combo_5")
             }
             tapCount >= 3 && comboFired < 3 -> {
                 comboFired = 3
                 showBubble(Persona.comboLine(3))
+                runJs("window.setMood('poke')")
                 Supabase.logGesture("combo_3")
             }
         }
@@ -404,7 +493,7 @@ class PetOverlayService : Service() {
         // 阶段1：280ms 飞出
         animateWindow(v, lp.x, lp.y, outX, outY, 280L) {
             showBubble(Persona.onFlingBack())
-            runJs("window.setMood('happy')")
+            runJs("window.setMood('love')")
             // 阶段2：1000ms 爬回原位
             animateWindow(v, outX, outY, originX, originY, 1000L) {
                 runJs("window.setMood('neutral')")
@@ -453,6 +542,8 @@ class PetOverlayService : Service() {
 
     // —— 蓝图增强：互动登记（孤独重置 + 好感度累计） ——
     private fun touch() {
+        // 睡眠守卫：睡着被摸（含甩飞）先伸懒腰醒过来，再算互动（2026-09-04）
+        if (isSleeping) awakenIfSleeping()
         lastInteractionAt = System.currentTimeMillis()
         lonelyNextStep = 5
         if (heat < 100) heat++
@@ -465,6 +556,81 @@ class PetOverlayService : Service() {
     }
 
     private fun heatLevel(h: Int): Int = if (h >= 80) 3 else if (h >= 50) 2 else 1
+
+    // ---------------- 情绪引擎 · 状态机（2026-09-04） ----------------
+
+    /**
+     * 双通道汇入的情绪处理入口（通道A无障碍广播 / 通道B云端轮询共用）。
+     * HURT  → 缩角落 + 好感清零 + 上委屈锁（只认 LOVE 哄回）
+     * LOVE  → 锁中：回常驻位 + love 脸 + 哄好解锁 / 非锁：love 脸轻回应
+     * CARE  → 非锁时轻冒泡回应，不闹
+     */
+    private fun consumeEmotion(text: String, via: String) {
+        val hit = EmotionTrigger.match(text)
+        if (!hit.matched) return
+        // 睡眠守卫：睡着被情绪叫醒，先伸懒腰再进各分支反应（2026-09-04）
+        awakenIfSleeping()
+        Log.i(TAG, "emotion ${hit.level} <- [${hit.word}] via $via")
+        when (hit.level) {
+            EmotionTrigger.Level.HURT -> {
+                if (!blockedUntilLove) goCorner()      // 已在角落就不再重复躲
+                blockedUntilLove = true
+                heat = 0
+                heatShownLevel = heatLevel(0)
+                heatPrefs.edit().putInt(KEY_HEAT, 0).apply()
+                showBubble(Persona.onEmotionHurt())
+                runJs("window.setMood('sad')")
+                Supabase.logGesture("emotion_hurt")
+            }
+            EmotionTrigger.Level.LOVE -> {
+                if (blockedUntilLove) {
+                    // 哄好了：回常驻位 + love 脸 + 好感小幅回升
+                    blockedUntilLove = false
+                    goHome()
+                    runJs("window.setMood('love')")
+                    showBubble(Persona.onEmotionLoved())
+                    heat = (heat + 8).coerceAtMost(100)
+                    val lv = heatLevel(heat)
+                    if (lv > heatShownLevel) heatShownLevel = lv
+                    heatPrefs.edit().putInt(KEY_HEAT, heat).apply()
+                    Supabase.logGesture("emotion_loved_back")
+                } else {
+                    // 日常撒娇：love 脸亮一下，不闹
+                    runJs("window.setMood('love')")
+                    showBubble(Persona.onEmotionLoved())
+                    Supabase.logGesture("emotion_love")
+                }
+            }
+            EmotionTrigger.Level.CARE -> {
+                // 委屈锁中只认 LOVE，CARE 不回应（不能被叫名字糊弄过去）
+                if (!blockedUntilLove) {
+                    runJs("window.setMood('smile')")   // 被叫到：低调微笑，不闹
+                    showBubble(Persona.onEmotionCare())
+                    Supabase.logGesture("emotion_care")
+                }
+            }
+            else -> {
+            }
+        }
+    }
+
+    /** 被气话赶去：滑到右上角外侧躲起来（easeOutCubic 600ms） */
+    private fun goCorner() {
+        val lp = layoutParams ?: return
+        if (lp.x == cornerX && lp.y == cornerY) return
+        animateWindow(webView, lp.x, lp.y, cornerX, cornerY, 600L) {
+            runJs("window.setMood('sad')")
+        }
+    }
+
+    /** 被哄回来：滑回常驻位（easeOutCubic 700ms） */
+    private fun goHome() {
+        val lp = layoutParams ?: return
+        if (lp.x == homeX && lp.y == homeY) return
+        animateWindow(webView, lp.x, lp.y, homeX, homeY, 700L) {
+            runJs("window.setMood('love')")
+        }
+    }
 
     // ---------------- 循环 ----------------
 
@@ -523,13 +689,29 @@ class PetOverlayService : Service() {
         override fun run() {
             if (viewAdded) {
                 try {
+                    // 睡眠中：冒头与喝水全挂起，别睡一半被自己吵醒（2026-09-04）
+                    if (isSleeping) {
+                        // 睡着不打扰，等下个周期
+                    } else {
+                    // 蓝图：20min 定时行为（30% 概率做符合当前时段+性格的事；睡眠中挂起）
+                    // 中了就切专属脸+冒台词，本周期跳过 50% 冒头，两种气泡不打架
+                    val hourNow = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+                    if (Random.nextFloat() < 0.3f) {
+                        val act = Persona.timedAct(hourNow)
+                        runJs("window.setMood('${act.first}')")
+                        val line = act.second
+                        showBubble(line)
+                        updateNotification(line)
+                        Supabase.logGesture("timed_act_${act.first}")
+                    } else {
                     // 人格 V2：20min 概率主动冒头（冒头时同步刷新通知文案）
                     if (Random.nextFloat() < 0.5f) {
                         val line = Persona.idlePoke()
                         showBubble(line)
                         updateNotification(line)
                     }
-                    // 喝水提醒：40min 间隔；距上次 20~40min 之间 50% 概率二次盯梢
+                    }
+                    // 喝水提醒：2h 一档（2026-09-04 栀栀改稀）；距上次 1h 起 50% 概率二次盯梢
                     val now = System.currentTimeMillis()
                     val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
                     if (hour in 9..20) {
@@ -537,9 +719,15 @@ class PetOverlayService : Service() {
                         if (since >= WATER_INTERVAL_MS) {
                             lastWaterAt = now
                             showBubble(Persona.waterRemind())
-                        } else if (since in 20 * 60_000L until WATER_INTERVAL_MS) {
+                        } else if (since >= WATER_INTERVAL_MS / 2) {
                             if (Random.nextFloat() < 0.5f) showBubble(Persona.waterRemindAgain())
                         }
+                    }
+                    // 通知碎碎念：满 1h 没念叨过就自己换一句（只改通知不弹气泡，2026-09-04）
+                    if (System.currentTimeMillis() - lastNotifMumbleAt >= NOTIF_MUMBLE_MS) {
+                        lastNotifMumbleAt = System.currentTimeMillis()
+                        updateNotification(Persona.notifMumble())
+                    }
                     }
                 } catch (_: Exception) {
                 }
@@ -549,14 +737,26 @@ class PetOverlayService : Service() {
     }
 
     private fun checkLoneliness() {
+        // 睡眠中：孤独计时冻结，等唤醒重置（2026-09-04）
+        if (isSleeping) return
         val now = System.currentTimeMillis()
         val gapMin = ((now - lastInteractionAt) / 60_000L).toInt()
+        // 入睡档：30min 档走完仍没人理，45min 就睡过去（zzz 脸；2026-09-04 栀栀批定）
+        if (lonelyNextStep >= 45 && now - lastInteractionAt >= SLEEP_AFTER_MS) {
+            isSleeping = true
+            val line = "没人理我……先睡会儿，你忙完记得戳醒我"
+            showBubble(line)
+            updateNotification(line)
+            runJs("window.setMood('zzz')")
+            Supabase.logGesture("sleep_45min")
+            return
+        }
         // 好感度缓慢衰减（5min 未互动 -1）
         if (gapMin >= 5 && heat > 0) {
             heat = (heat - 1).coerceAtLeast(0)
             heatPrefs.edit().putInt(KEY_HEAT, heat).apply()
         }
-        // 孤独档位递进（lonelyNextStep=45 表示 30min 档已触发完毕，不再打扰）
+        // 孤独档位递进（lonelyNextStep=45 表示 30min 档已触发完毕，等待入睡档）
         if (lonelyNextStep <= 30 && gapMin >= lonelyNextStep) {
             val line = Persona.lonelyLine(lonelyNextStep)
             showBubble(line)
@@ -568,6 +768,20 @@ class PetOverlayService : Service() {
         }
     }
 
+    // —— 蓝图增强：睡眠守卫（2026-09-04 栀栀批定 45min 入睡）——
+    /** 睡着被任何触达叫醒：先播伸懒腰（wake 脸），短暂停留后落回 fallback 脸 */
+    private fun awakenIfSleeping(fallback: String = "neutral"): Boolean {
+        if (!isSleeping) return false
+        isSleeping = false
+        lastInteractionAt = System.currentTimeMillis()
+        lonelyNextStep = 5
+        runJs("window.setMood('wake')")
+        updateNotification("伸个懒腰～醒啦")
+        Supabase.logGesture("wake")
+        handler.postDelayed({ runJs("window.setMood('$fallback')") }, WAKE_POSE_MS)
+        return true
+    }
+
     private fun checkForegroundApp() {
         val now = System.currentTimeMillis()
         val pkg = AppDetector.currentForeground(this) ?: return
@@ -576,6 +790,8 @@ class PetOverlayService : Service() {
             if (pkg == DOUYIN_PKG && currentAppSince > 0 && douyinWarnedAt == 0L &&
                 now - currentAppSince > SCREEN_WARN_MS
             ) {
+                // 睡眠守卫：睡着还刷抖音 20min，连睡着的它都看不下去，先醒再提醒（2026-09-04）
+                awakenIfSleeping("neutral")
                 showBubble("抖音都刷 20 分钟啦！眼睛歇会儿好不好～")
                 Supabase.logGesture("douyin_20min_warn")
                 douyinWarnedAt = now
@@ -592,9 +808,35 @@ class PetOverlayService : Service() {
             douyinWarnedAt = 0L
         }
         if (prev != null) {
+            // 快速切换账本：滚动窗口内切换≥3次 → 心虚抓包（2026-09-04 栀栀点单）
+            switchLog.add(now)
+            while (switchLog.isNotEmpty() && now - switchLog.first() > FAST_SWITCH_WINDOW_MS) {
+                switchLog.removeAt(0)
+            }
+            var caughtFast = false
+            if (switchLog.size >= FAST_SWITCH_THRESHOLD &&
+                now - fastSwitchWarnedAt >= FAST_SWITCH_COOLDOWN_MS
+            ) {
+                caughtFast = true
+                fastSwitchWarnedAt = now
+                showBubble(Persona.fastSwitchLine())
+                Supabase.logGesture("fast_switch")
+            }
             // 记录 App 使用（切到新 App 时上报旧 App 曾在前台）
             Supabase.logAppUsage(pkg)
-            Persona.reactionFor(pkg)?.let { showBubble(it) }
+            // 睡眠守卫：睡着被切 App 叫醒，先伸懒腰再落 app 脸，本轮不抢脸（2026-09-04）
+            if (awakenIfSleeping(Persona.appMood(pkg) ?: "neutral")) return
+            if (!caughtFast) {
+                Persona.reactionFor(pkg)?.let { showBubble(it) }
+            }
+            // 聊天软件：气泡之外再摆张吃醋脸（sulk 专属斜瞥）；离开则收回
+            // 抓包本轮不抢脸，交给 app 脸逻辑自然归位；切到无脸 app 时用 sneak 收尾
+            val appMood = Persona.appMood(pkg)
+            if (appMood != null) {
+                runJs("window.setMood('$appMood')")
+            } else if (Persona.appMood(prev) != null) {
+                runJs("window.setMood('${if (caughtFast) "sneak" else "neutral"}')")
+            }
         }
     }
 
@@ -607,10 +849,15 @@ class PetOverlayService : Service() {
             handler.post {
                 when (key) {
                     "mood" -> {
-                        runJs("window.setMood(${jsQuote(value)})")
+                        // 睡眠守卫：大脑指令叫醒，先伸懒腰再落目标脸（2026-09-04）
+                        if (!awakenIfSleeping(value)) {
+                            runJs("window.setMood(${jsQuote(value)})")
+                        }
                         Log.i(TAG, "brain mood -> $value")
                     }
                     "speech_bubble" -> {
+                        // 睡眠守卫：睡着被大脑气泡叫醒，伸完懒腰收 neutral
+                        awakenIfSleeping()
                         showBubble(value)
                         Log.i(TAG, "brain speech -> $value")
                     }
@@ -663,7 +910,7 @@ class PetOverlayService : Service() {
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
     }
 
-    private fun buildNotification(text: String = "点一下跟我玩，长按拖动我到处跑"): Notification {
+    private fun buildNotification(text: String = Persona.notifMumble()): Notification {
         val contentIntent = PendingIntent.getActivity(
             this, 0,
             Intent(this, MainActivity::class.java),
@@ -696,6 +943,10 @@ class PetOverlayService : Service() {
         screenshotWatcher?.stop()
         try {
             unregisterReceiver(batteryReceiver)
+        } catch (_: Exception) {
+        }
+        try {
+            unregisterReceiver(emotionReceiver)
         } catch (_: Exception) {
         }
         if (viewAdded) {

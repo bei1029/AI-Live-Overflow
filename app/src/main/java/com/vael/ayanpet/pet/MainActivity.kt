@@ -111,11 +111,13 @@ class MainActivity : Activity() {
         val overlayOk = Settings.canDrawOverlays(this)
         val usageOk = usageAccessGranted()
         val notifOk = notificationsEnabled()
+        val a11yOk = accessibilityEnabled()
 
         val sb = StringBuilder()
         sb.append(if (overlayOk) "✅ 悬浮窗权限" else "❌ 悬浮窗权限（必须）").append('\n')
         sb.append(if (usageOk) "✅ 使用情况访问" else "❌ 使用情况访问（推荐，用于查岗）").append('\n')
-        sb.append(if (notifOk) "✅ 通知权限" else "⚠️ 通知权限（没开也能跑，只是没有常驻通知）")
+        sb.append(if (notifOk) "✅ 通知权限" else "⚠️ 通知权限（没开也能跑，只是没有常驻通知）").append('\n')
+        sb.append(if (a11yOk) "✅ 无障碍（情绪引擎在听）" else "⚠️ 无障碍（可选，开了我能听懂你打字）")
         status.text = sb.toString()
         status.setTextColor(
             if (overlayOk && usageOk) Color.parseColor("#2E7D32")
@@ -131,6 +133,9 @@ class MainActivity : Activity() {
         }
         if (!notifOk && Build.VERSION.SDK_INT >= 33) {
             actionHost.addView(button("🔔 去开通知权限") { openNotifSettings() })
+        }
+        if (!a11yOk) {
+            actionHost.addView(button("👂 去开无障碍（情绪引擎）") { openA11ySettings() })
         }
     }
 
@@ -170,6 +175,13 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun openA11ySettings() {
+        try {
+            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        } catch (_: Exception) {
+        }
+    }
+
     // ---------------- 权限探测 ----------------
 
     private fun usageAccessGranted(): Boolean {
@@ -189,4 +201,12 @@ class MainActivity : Activity() {
     private fun notificationsEnabled(): Boolean =
         (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
             .areNotificationsEnabled()
+
+    /** 无障碍服务是否已开启（系统设置里手动打开，用逗号分隔的组件串检测） */
+    private fun accessibilityEnabled(): Boolean {
+        val enabled = Settings.Secure.getString(
+            contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+        ) ?: return false
+        return enabled.split(':').any { it.contains(packageName) }
+    }
 }

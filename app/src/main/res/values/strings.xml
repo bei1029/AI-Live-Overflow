@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">阿衍桌宠</string>
+    <string name="accessibility_service_description">让阿衍听得到你在手机里打的字。只读取输入框的文本变化，用于本机匹配亲昵/气话并做出反应，内容不出设备、不上传。</string>
+
 </resources>
