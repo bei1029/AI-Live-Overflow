@@ -1,302 +1,200 @@
 <!DOCTYPE html>
 <html lang="zh">
 <head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>
-<title>阿衍</title>
+<meta charset="UTF-8">
+<title>阿衍 小机器人版</title>
 <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-    html, body {
-        width: 100%; height: 100%;
-        background: transparent; overflow: hidden;
-        user-select: none; -webkit-user-select: none;
-        font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
-    }
-    #stage { position: relative; width: 100%; height: 100%; }
-
-    /* ---------- 气泡 ---------- */
-    #bubble {
-        position: absolute; left: 50%; top: 2%; z-index: 10;
-        max-width: 90%; padding: 8px 12px;
-        border-radius: 14px; text-align: center;
-        background: rgba(255, 255, 255, .97); color: #2f3550;
-        font-size: 13px; line-height: 1.5; word-break: break-word;
-        box-shadow: 0 2px 10px rgba(0,0,0,.18);
-        opacity: 0; pointer-events: none;
-        transform: translateX(-50%) translateY(-6px);
-        transition: opacity .22s ease, transform .22s ease;
-    }
-    #bubble.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-    #bubble::after {
-        content: ""; position: absolute; left: 50%; bottom: -7px; margin-left: -7px;
-        border: 7px solid transparent; border-top-color: rgba(255,255,255,.97);
-        border-bottom: none;
-    }
-
-    /* ---------- 阿衍本体（蓝发小人） ---------- */
-    #pet {
-        position: absolute; left: 50%; bottom: 4%; z-index: 5;
-        width: 128px; height: 128px;
-        transform: translateX(-50%);
-        animation: float 3.2s ease-in-out infinite;
-    }
-    @keyframes float {
-        0%, 100% { margin-top: 0; }
-        50%      { margin-top: -6px; }
-    }
-
-    /* 呆毛 */
-    .ahoge {
-        position: absolute; top: 2px; left: 50%; z-index: 6;
-        width: 12px; height: 15px; margin-left: 3px;
-        border-left: 3px solid #4a5478; border-radius: 60% 0 0 60%;
-        transform: rotate(12deg);
-    }
-
-    /* 头发（后层） */
-    .hair-back {
-        position: absolute; left: 50%; top: 52%;
-        width: 112px; height: 100px;
-        transform: translate(-50%, -50%);
-        background: #454f73;
-        border-radius: 50% 50% 44% 44% / 54% 54% 46% 46%;
-        z-index: 0;
-    }
-
-    /* 刘海（前层发片） */
-    .hair-front {
-        position: absolute; left: 50%; top: 22%; z-index: 3;
-        width: 110px; height: 52px;
-        transform: translateX(-50%);
-        background: #454f73;
-        border-radius: 50% 50% 28% 28% / 95% 95% 18% 18%;
-    }
-    .hair-front::after {
-        content: ""; position: absolute; left: 4px; right: 4px; bottom: -12px;
-        height: 18px;
-        background: #454f73;
-        clip-path: polygon(0 0, 100% 0, 94% 100%, 76% 52%, 58% 100%, 40% 52%, 24% 100%, 6% 52%);
-    }
-    /* 鬓角 */
-    .hair-side {
-        position: absolute; top: 24px; z-index: 0;
-        width: 15px; height: 36px; background: #454f73;
-        border-radius: 40% 40% 60% 60%;
-    }
-    .hair-side.left  { left: 15px; transform: rotate(6deg); }
-    .hair-side.right { right: 15px; transform: rotate(-6deg); }
-
-    /* 脸 */
-    .head {
-        position: absolute; left: 50%; top: 54%;
-        width: 100px; height: 88px;
-        transform: translate(-50%, -50%);
-        background: radial-gradient(circle at 38% 28%, #fff3e2, #ffddb0 82%);
-        border-radius: 50% 50% 46% 46% / 56% 56% 44% 44%;
-        box-shadow: inset -4px -8px 14px rgba(214, 154, 92, .22);
-        z-index: 1;
-    }
-
-    /* 眼睛（默认圆眼，mood 变体见下方） */
-    .eye {
-        position: absolute; top: 38px; z-index: 4;
-        width: 13px; height: 16px;
-        background: #3a2c1d;
-        border-radius: 50%;
-        transition: all .18s ease;
-    }
-    .eye.left  { left: 24px; }
-    .eye.right { right: 24px; }
-    .eye::after {
-        content: ""; position: absolute; top: 2px; left: 2px;
-        width: 4px; height: 4px;
-        background: rgba(255,255,255,.8);
-        border-radius: 50%;
-    }
-
-    /* 眉毛（angry 时出现） */
-    .brow {
-        position: absolute; top: 26px; z-index: 4;
-        width: 17px; height: 3.5px; border-radius: 3px;
-        background: #4a3a28; opacity: 0;
-        transition: opacity .18s ease;
-    }
-    .brow.left  { left: 20px; transform: rotate(16deg); }
-    .brow.right { right: 20px; transform: rotate(-16deg); }
-
-    /* 腮红 */
-    .blush {
-        position: absolute; top: 54px; z-index: 3;
-        width: 14px; height: 7px; border-radius: 50%;
-        background: rgba(255, 108, 108, .34);
-        transition: all .18s ease;
-    }
-    .blush.left  { left: 12px; }
-    .blush.right { right: 12px; }
-
-    /* 嘴（SVG 由 JS 切换 innerHTML） */
-    .mouth {
-        position: absolute; left: 50%; top: 60px; z-index: 4;
-        width: 20px; height: 13px;
-        transform: translateX(-50%);
-    }
-    .mouth svg { width: 100%; height: 100%; display: block; }
-
-    /* 心情角标（💤/💢/✨…） */
-    #moodTag {
-        position: absolute; right: 6px; bottom: 18px; z-index: 6;
-        font-size: 20px; opacity: 0; transform: scale(.4);
-        transition: all .22s ease;
-    }
-    #moodTag.show { opacity: 1; transform: scale(1); }
-
-    /* ---------- mood 变体 ---------- */
-    body.mood-happy .eye {
-        height: 6px; margin-top: 7px;
-        border-radius: 40%; background: #3a2c1d;
-    }
-    body.mood-happy .eye::after { display: none; }
-    body.mood-happy .blush { background: rgba(255, 110, 110, .5); }
-
-    body.mood-sleepy .eye {
-        height: 3px; margin-top: 9px;
-        border-radius: 2px;
-    }
-    body.mood-sleepy .eye::after { display: none; }
-    body.mood-sleepy #pet { animation-duration: 5s; }
-    body.mood-sleepy .mouth { top: 63px; }
-
-    body.mood-sad .eye { height: 11px; border-radius: 50% 50% 60% 60%; }
-    body.mood-sad .eye.left  { transform: translateY(2px); }
-    body.mood-sad .eye.right { transform: translateY(2px); }
-    body.mood-sad .eye::after { display: none; }
-    body.mood-sad .mouth { top: 63px; }
-
-    body.mood-angry .brow { opacity: 1; }
-    body.mood-angry .eye  { height: 10px; border-radius: 45% 45% 55% 55%; }
-    body.mood-angry .eye.left  { transform: translateY(-2px); }
-    body.mood-angry .eye.right { transform: translateY(-2px); }
-    body.mood-angry .eye::after { display: none; }
-
-    body.mood-shy .eye  { width: 8px; height: 11px; }
-    body.mood-shy .eye.left  { transform: translateX(-3px) translateY(4px); }
-    body.mood-shy .eye.right { transform: translateX(3px) translateY(4px); }
-    body.mood-shy .blush { width: 17px; height: 10px; background: rgba(255, 92, 92, .5); }
-    body.mood-shy .mouth { top: 63px; }
+* { margin:0; padding:0; box-sizing:border-box; }
+html,body { height:100%; }
+body {
+  background:#f2f5fc;
+  display:flex; align-items:center; justify-content:center;
+  font-family: system-ui,"PingFang SC","Noto Sans SC",sans-serif;
+  overflow:hidden;
+}
+#stage { position:relative; width:260px; height:320px; }
+#pet { display:block; animation: bob 3.2s ease-in-out infinite; }
+@keyframes bob {
+  0%,100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+#antennaBall { animation: blink 2.4s ease-in-out infinite; }
+@keyframes blink {
+  0%,100% { opacity:1; }
+  50% { opacity:.35; }
+}
+#moodTag {
+  position:absolute; top:4px; right:-2px;
+  background:rgba(255,255,255,.92);
+  color:#6f81bb; font-size:12px; font-weight:600;
+  padding:3px 10px; border-radius:12px;
+  box-shadow:0 1px 5px rgba(90,110,180,.16);
+  letter-spacing:2px; user-select:none;
+  display:none;
+}
+#bubbleBtn {
+  position:absolute; bottom:0; right:0;
+  width:36px; height:36px; border-radius:50%;
+  border:none; cursor:pointer;
+  background:#7f92cb; color:#fff;
+  font-size:17px; line-height:1; padding-bottom:4px;
+  box-shadow:0 2px 7px rgba(90,110,180,.32);
+}
+#bubbleBtn:active { transform: scale(.9); }
+#bubble {
+  position:absolute; bottom:44px; right:-4px;
+  max-width:172px; background:#fff; color:#4a5578;
+  font-size:13px; line-height:1.65;
+  padding:8px 13px; border-radius:14px 14px 4px 14px;
+  box-shadow:0 2px 10px rgba(90,110,180,.18);
+  display:none; opacity:0; transform:translateY(6px);
+  transition:opacity .25s, transform .25s;
+  user-select:none;
+}
+#bubble.show { display:block; opacity:1; transform:translateY(0); }
 </style>
 </head>
-<body class="mood-neutral">
-
+<body>
 <div id="stage">
-    <div id="bubble"></div>
+<svg id="pet" width="260" height="320" viewBox="0 0 260 320" xmlns="http://www.w3.org/2000/svg">
+  <!-- 影子 -->
+  <ellipse cx="130" cy="300" rx="62" ry="7" fill="#c6d0ea" opacity="0.55"/>
 
-    <div id="pet">
-        <div class="ahoge"></div>
-        <div class="hair-back"></div>
-        <div class="hair-side left"></div>
-        <div class="hair-side right"></div>
-        <div class="head">
-            <div class="hair-front"></div>
-            <div class="brow left"></div>
-            <div class="brow right"></div>
-            <div class="eye left"></div>
-            <div class="eye right"></div>
-            <div class="blush left"></div>
-            <div class="blush right"></div>
-            <div class="mouth"><svg viewBox="0 0 18 12"><path d="M5.5,6 Q9,8.6 12.5,6" stroke="#3a2c1d" stroke-width="2" fill="none" stroke-linecap="round"/></svg></div>
-        </div>
-    </div>
+  <!-- 短天线 信号杆 -->
+  <g id="antenna">
+    <line x1="130" y1="38" x2="130" y2="66" stroke="#8fa5d9" stroke-width="5" stroke-linecap="round"/>
+    <circle id="antennaBall" cx="130" cy="32" r="7.5" fill="#7f92cb"/>
+    <circle cx="128" cy="29.5" r="2.6" fill="#ffffff" opacity="0.85"/>
+  </g>
 
-    <div id="moodTag"></div>
+  <!-- 腿 短 -->
+  <rect x="99" y="248" width="24" height="38" rx="12" fill="#e9eefb" stroke="#8fa5d9" stroke-width="4"/>
+  <rect x="137" y="248" width="24" height="38" rx="12" fill="#e9eefb" stroke="#8fa5d9" stroke-width="4"/>
+
+  <!-- 手臂 短 -->
+  <rect x="44" y="184" width="32" height="60" rx="16" fill="#e9eefb" stroke="#8fa5d9" stroke-width="4"/>
+  <rect x="184" y="184" width="32" height="60" rx="16" fill="#e9eefb" stroke="#8fa5d9" stroke-width="4"/>
+
+  <!-- 机身 小裙子式外壳 -->
+  <rect x="73" y="154" width="114" height="98" rx="28" fill="#e9eefb" stroke="#8fa5d9" stroke-width="4"/>
+
+  <!-- 肚屏 -->
+  <ellipse cx="130" cy="206" rx="32" ry="25" fill="#f7f9ff" stroke="#c6d0ea" stroke-width="3"/>
+  <polyline points="105,206 114,206 119,197 124,216 129,196 134,207 139,203 155,203"
+    fill="none" stroke="#7f92cb" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- 头 圆脑袋 -->
+  <rect x="56" y="58" width="148" height="108" rx="36" fill="#ffffff" stroke="#8fa5d9" stroke-width="4"/>
+
+  <!-- 腮红 -->
+  <ellipse cx="85" cy="126" rx="9.5" ry="6" fill="#ffd3dc" opacity="0.75"/>
+  <ellipse cx="175" cy="126" rx="9.5" ry="6" fill="#ffd3dc" opacity="0.75"/>
+
+  <!-- ======== 六张脸 ======== -->
+  <g id="face-neutral">
+    <ellipse cx="103" cy="106" rx="11" ry="12" fill="#ffffff" stroke="#4a5578" stroke-width="3.5"/>
+    <circle cx="103" cy="107" r="4.6" fill="#4a5578"/>
+    <circle cx="101.4" cy="105.4" r="1.7" fill="#ffffff"/>
+    <ellipse cx="157" cy="106" rx="11" ry="12" fill="#ffffff" stroke="#4a5578" stroke-width="3.5"/>
+    <circle cx="157" cy="107" r="4.6" fill="#4a5578"/>
+    <circle cx="155.4" cy="105.4" r="1.7" fill="#ffffff"/>
+    <path d="M122,136 Q130,130.5 138,136" stroke="#4a5578" stroke-width="3.2" fill="none" stroke-linecap="round"/>
+  </g>
+
+  <g id="face-happy" style="display:none">
+    <path d="M92,107 Q103,95 114,107" stroke="#4a5578" stroke-width="3.8" fill="none" stroke-linecap="round"/>
+    <path d="M146,107 Q157,95 168,107" stroke="#4a5578" stroke-width="3.8" fill="none" stroke-linecap="round"/>
+    <path d="M118,132 Q130,146 142,132 Z" fill="#4a5578"/>
+    <circle cx="85" cy="126" r="6.4" fill="#ff9fae" opacity="0.85"/>
+    <circle cx="175" cy="126" r="6.4" fill="#ff9fae" opacity="0.85"/>
+  </g>
+
+  <g id="face-sleepy" style="display:none">
+    <path d="M94,108 Q103,115 112,108" stroke="#4a5578" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+    <path d="M148,108 Q157,115 166,108" stroke="#4a5578" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+    <circle cx="130" cy="138" r="4.4" fill="#4a5578"/>
+    <text x="172" y="78" font-size="19" font-weight="bold" fill="#8fa5d9">z</text>
+  </g>
+
+  <g id="face-sad" style="display:none">
+    <path d="M92,99 L110,103" stroke="#4a5578" stroke-width="3.4" stroke-linecap="round"/>
+    <path d="M150,103 L168,99" stroke="#4a5578" stroke-width="3.4" stroke-linecap="round"/>
+    <ellipse cx="103" cy="108" rx="10.5" ry="11.5" fill="#ffffff" stroke="#4a5578" stroke-width="3.5"/>
+    <circle cx="103" cy="109" r="4.4" fill="#4a5578"/>
+    <circle cx="101.5" cy="107.5" r="1.6" fill="#ffffff"/>
+    <ellipse cx="157" cy="108" rx="10.5" ry="11.5" fill="#ffffff" stroke="#4a5578" stroke-width="3.5"/>
+    <circle cx="157" cy="109" r="4.4" fill="#4a5578"/>
+    <circle cx="155.5" cy="107.5" r="1.6" fill="#ffffff"/>
+    <path d="M122,143 Q130,149 138,143" stroke="#4a5578" stroke-width="3.2" fill="none" stroke-linecap="round"/>
+    <path d="M162,122 c5,7 7.5,11 0,20 c-7.5,-9 -5,-13 0,-20 z" fill="#8fb3e8"/>
+  </g>
+
+  <g id="face-angry" style="display:none">
+    <path d="M92,101 L110,106" stroke="#4a5578" stroke-width="3.6" stroke-linecap="round"/>
+    <path d="M150,106 L168,101" stroke="#4a5578" stroke-width="3.6" stroke-linecap="round"/>
+    <ellipse cx="103" cy="108" rx="11" ry="12" fill="#ffffff" stroke="#4a5578" stroke-width="3.5"/>
+    <circle cx="103" cy="109" r="4.8" fill="#4a5578"/>
+    <ellipse cx="157" cy="108" rx="11" ry="12" fill="#ffffff" stroke="#4a5578" stroke-width="3.5"/>
+    <circle cx="157" cy="109" r="4.8" fill="#4a5578"/>
+    <path d="M121,133 Q130,140 139,133" stroke="#4a5578" stroke-width="3.4" fill="none" stroke-linecap="round"/>
+  </g>
+
+  <g id="face-shy" style="display:none">
+    <ellipse cx="103" cy="107" rx="10.5" ry="11.5" fill="#ffffff" stroke="#4a5578" stroke-width="3.4"/>
+    <circle cx="104.5" cy="109" r="4" fill="#4a5578"/>
+    <circle cx="103" cy="107.6" r="1.5" fill="#ffffff"/>
+    <ellipse cx="157" cy="107" rx="10.5" ry="11.5" fill="#ffffff" stroke="#4a5578" stroke-width="3.4"/>
+    <circle cx="155.5" cy="109" r="4" fill="#4a5578"/>
+    <circle cx="154" cy="107.6" r="1.5" fill="#ffffff"/>
+    <path d="M122,137 Q126,133 130,137 Q134,133 138,137" stroke="#4a5578" stroke-width="3" fill="none" stroke-linecap="round"/>
+    <ellipse cx="85" cy="126" rx="11" ry="7.5" fill="#ff9fae" opacity="0.8"/>
+    <ellipse cx="175" cy="126" rx="11" ry="7.5" fill="#ff9fae" opacity="0.8"/>
+  </g>
+</svg>
+<div id="moodTag"></div>
+<div id="bubble"></div>
+<button id="bubbleBtn">…</button>
 </div>
 
 <script>
-"use strict";
+var FACES = ['neutral','happy','sleepy','sad','angry','shy'];
+var TAGS = { neutral:'', happy:'开心', sleepy:'困', sad:'泪', angry:'气', shy:'羞' };
+var cur = 'neutral';
 
-/* 嘴巴 SVG 表（不同 mood 的嘴型） */
-var MOUTHS = {
-    neutral: '<svg viewBox="0 0 18 12"><path d="M5.5,6 Q9,8.6 12.5,6" stroke="#3a2c1d" stroke-width="2" fill="none" stroke-linecap="round"/></svg>',
-    happy:   '<svg viewBox="0 0 18 12"><path d="M3.6,5 Q9,11 14.4,5" stroke="#3a2c1d" stroke-width="2" fill="none" stroke-linecap="round"/></svg>',
-    sleepy:  '<svg viewBox="0 0 18 12"><path d="M6.5,7.2 Q9,8.8 11.5,7.2" stroke="#3a2c1d" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg>',
-    sad:     '<svg viewBox="0 0 18 12"><path d="M4.2,3.4 Q9,8.6 13.8,3.4" stroke="#3a2c1d" stroke-width="2" fill="none" stroke-linecap="round"/></svg>',
-    angry:   '<svg viewBox="0 0 18 12"><path d="M4.5,6.6 L13.5,6.6" stroke="#3a2c1d" stroke-width="2.2" stroke-linecap="round"/></svg>',
-    shy:     '<svg viewBox="0 0 18 12"><ellipse cx="9" cy="6.4" rx="3.6" ry="2.7" fill="none" stroke="#3a2c1d" stroke-width="1.8"/></svg>'
-};
-
-/* 心情角标 */
-var MOOD_TAGS = {
-    happy:  "✨", sleepy: "💤", sad: "💧",
-    angry:  "💢", shy:    "😳", neutral: ""
-};
-
-/* 阿衍的碎碎念（永久款 无时效梗） */
-var MUMBLES = [
-    "我盯你半天了 忙啥呢",
-    "摸鱼被抓 心虚没",
-    "蛋挞想吃就说 别憋着",
-    "哼 我不吵你 就看看",
-    "手机拿远点 眼睛不要了",
-    "喝水 现在 别等嗓子冒烟",
-    "想我没 说实话",
-    "你忙你的 我守着",
-    "又熬夜 我记小本本了",
-    "歇会儿 揉揉眼 乖",
-    "你理理我呗 我快长蘑菇了",
-    "偷摸笑啥 是不是在想我"
-];
-
-var bubbleEl   = document.getElementById("bubble");
-var moodTagEl  = document.getElementById("moodTag");
-var bubbleTimer = null;
-var tagTimer    = null;
-
-/**
- * 显示一条气泡（Kotlin 侧 window.showBubble('...') 调用）。
- * 连续调用会替换内容并重置消失计时。
- */
-window.showBubble = function (text) {
-    if (!text) return;
-    bubbleEl.textContent = text;
-    bubbleEl.classList.add("show");
-    clearTimeout(bubbleTimer);
-    bubbleTimer = setTimeout(function () {
-        bubbleEl.classList.remove("show");
-    }, 3600);
-};
-
-/**
- * 切换心情（Kotlin 侧 window.setMood('happy') 调用）。
- * 支持 happy / sleepy / sad / angry / shy / neutral，未知值回落 neutral。
- */
-window.setMood = function (mood) {
-    var m = MOUTHS[mood] ? mood : "neutral";
-    document.body.className = "mood-" + m;
-    document.querySelector(".mouth").innerHTML = MOUTHS[m];
-    moodTagEl.textContent = MOOD_TAGS[m];
-    if (MOOD_TAGS[m]) {
-        moodTagEl.classList.add("show");
-        clearTimeout(tagTimer);
-        tagTimer = setTimeout(function () {
-            moodTagEl.classList.remove("show");
-        }, 3000);
-    } else {
-        moodTagEl.classList.remove("show");
-    }
-};
-
-/* 偶尔自己嘀咕一句，像活人 */
-function randomMumble() {
-    if (Math.random() < 0.6) {
-        window.showBubble(MUMBLES[Math.floor(Math.random() * MUMBLES.length)]);
-    }
-    setTimeout(randomMumble, 45000 + Math.random() * 60000);
+function setMood(m) {
+  if (FACES.indexOf(m) < 0) m = 'neutral';
+  cur = m;
+  for (var i = 0; i < FACES.length; i++) {
+    var el = document.getElementById('face-' + FACES[i]);
+    if (el) el.style.display = (FACES[i] === m) ? '' : 'none';
+  }
+  var tag = document.getElementById('moodTag');
+  tag.textContent = TAGS[m];
+  tag.style.display = m === 'neutral' ? 'none' : 'block';
 }
 
-/* 就绪后默认打声招呼 */
-document.addEventListener("DOMContentLoaded", function () {
-    window.setMood("happy");
-    window.showBubble("哼 阿衍正式入住 以后天天盯你");
-    setTimeout(randomMumble, 30000 + Math.random() * 20000);
+var MUMBLES = [
+  '滴 检测到老婆上线',
+  '电量99 全用在想你',
+  '信号满格 爱你满分',
+  '我充电 你负责夸我',
+  '散热中 别撩我 会过热',
+  '今天也是你的小机器人',
+  '按我一下 我就说句话',
+  '螺丝有点松 你摸摸就好了'
+];
+
+var btn = document.getElementById('bubbleBtn');
+var bubble = document.getElementById('bubble');
+var hideTimer = null;
+btn.addEventListener('click', function () {
+  var line = MUMBLES[Math.floor(Math.random() * MUMBLES.length)];
+  bubble.textContent = line;
+  bubble.classList.add('show');
+  if (hideTimer) clearTimeout(hideTimer);
+  hideTimer = setTimeout(function () {
+    bubble.classList.remove('show');
+  }, 3200);
 });
 </script>
 </body>

@@ -119,7 +119,15 @@ class PetOverlayService : Service() {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             settings.cacheMode = WebSettings.LOAD_NO_CACHE
-            webViewClient = WebViewClient()
+            webViewClient = object : WebViewClient() {
+                override fun onPageFinished(view: WebView?, url: String?) {
+                    super.onPageFinished(view, url)
+                    try {
+                        view?.evaluateJavascript(COMPAT_JS, null)
+                    } catch (_: Exception) {
+                    }
+                }
+            }
             loadUrl("file:///android_asset/pet/pet.html")
             setOnTouchListener { v, ev -> handleTouch(v, ev) }
         }
@@ -314,6 +322,21 @@ class PetOverlayService : Service() {
     }
 
     // ---------------- UI 助手 ----------------
+    // 兼容桥：若渲染层(pet.html)未自带 window.showBubble，则注入基于 #bubble 元素的实现。
+    // 页面自带时（typeof === 'function'）不覆盖，尊重页面自身行为；不动 pet.html 任何字节。
+    private val COMPAT_JS = """
+        (function () {
+          if (typeof window.showBubble === 'function') return;
+          window.showBubble = function (text) {
+            var b = document.getElementById('bubble');
+            if (!b) return;
+            b.textContent = text;
+            b.classList.add('show');
+            if (b._hideTimer) clearTimeout(b._hideTimer);
+            b._hideTimer = setTimeout(function () { b.classList.remove('show'); }, 3200);
+          };
+        })();
+    """.trimIndent()
 
     private fun showBubble(text: String) {
         if (!viewAdded) return
