@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    通知小图标：阿衍猫脸剪影（白色，系统会按主题着色）。
+    注意：通知图标只取 alpha 通道，故全用白色填充，眼睛用 evenOdd 挖空。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <!-- 左耳 -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M5.4,8.0 L6.9,1.8 L11.2,4.4 C9.4,5.0 7.2,6.2 5.4,8.0 Z" />
+
+    <!-- 右耳 -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M18.6,8.0 L17.1,1.8 L12.8,4.4 C14.6,5.0 16.8,6.2 18.6,8.0 Z" />
+
+    <!-- 圆脸 + 两眼挖空（evenOdd：子路径重叠处透明） -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M12,3.6 C7.3,3.6 4.0,6.9 4.0,11.0 L4.0,13.6 C4.0,18.1 7.5,21.8 12,21.8 C16.5,21.8 20.0,18.1 20.0,13.6 L20.0,11.0 C20.0,6.9 16.7,3.6 12,3.6 Z
+            M8.0,11.0 a1.4,1.4 0 1,0 2.8,0 a1.4,1.4 0 1,0 -2.8,0 Z
+            M13.2,11.0 a1.4,1.4 0 1,0 2.8,0 a1.4,1.4 0 1,0 -2.8,0 Z" />
+</vector>

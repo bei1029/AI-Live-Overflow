@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>
+<title>阿衍</title>
+<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body {
+        width: 100%; height: 100%;
+        background: transparent; overflow: hidden;
+        user-select: none; -webkit-user-select: none;
+        font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    #stage { position: relative; width: 100%; height: 100%; }
+
+    /* ---------- 气泡 ---------- */
+    #bubble {
+        position: absolute; left: 50%; top: 2%; z-index: 10;
+        max-width: 90%; padding: 8px 12px;
+        border-radius: 14px; text-align: center;
+        background: rgba(255, 255, 255, .97); color: #43304a;
+        font-size: 13px; line-height: 1.5; word-break: break-word;
+        box-shadow: 0 2px 10px rgba(0,0,0,.18);
+        opacity: 0; pointer-events: none;
+        transform: translateX(-50%) translateY(-6px);
+        transition: opacity .22s ease, transform .22s ease;
+    }
+    #bubble.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+    #bubble::after {
+        content: ""; position: absolute; left: 50%; bottom: -7px; margin-left: -7px;
+        border: 7px solid transparent; border-top-color: rgba(255,255,255,.97);
+        border-bottom: none;
+    }
+
+    /* ---------- 阿衍本体（CSS 猫猫） ---------- */
+    #pet {
+        position: absolute; left: 50%; bottom: 6%; z-index: 5;
+        width: 118px; height: 118px;
+        transform: translateX(-50%);
+        animation: float 3.2s ease-in-out infinite;
+    }
+    @keyframes float {
+        0%, 100% { margin-top: 0; }
+        50%      { margin-top: -6px; }
+    }
+
+    .head-wrap { position: absolute; inset: 0; }
+
+    /* 耳朵 */
+    .ear {
+        position: absolute; top: 4px; width: 34px; height: 34px;
+        background: #f5b15f; border-radius: 8px;
+        z-index: 0;
+    }
+    .ear.left  { left: 14px; transform: rotate(-24deg) skewY(8deg); }
+    .ear.right { right: 14px; transform: rotate(24deg) skewY(-8deg); }
+    .ear::after {
+        content: ""; position: absolute; inset: 9px 9px 4px 4px;
+        background: #ffd9a8; border-radius: 50% 50% 40% 40%;
+    }
+    .ear.left::after  { transform: rotate(-6deg); }
+    .ear.right::after { transform: rotate(6deg); }
+
+    /* 脸 */
+    .head {
+        position: absolute; left: 50%; top: 50%;
+        width: 104px; height: 92px;
+        transform: translate(-50%, -50%);
+        background: radial-gradient(circle at 38% 30%, #ffe6bd, #f6b25f 78%);
+        border-radius: 50% 50% 46% 46% / 54% 54% 46% 46%;
+        box-shadow: inset -5px -9px 16px rgba(186, 116, 36, .28);
+        z-index: 1;
+    }
+
+    /* 眼睛（默认圆眼，mood 变体见下方） */
+    .eye {
+        position: absolute; top: 38px; z-index: 2;
+        width: 12px; height: 15px;
+        background: #46301f;
+        border-radius: 50%;
+        transition: all .18s ease;
+    }
+    .eye.left  { left: 25px; }
+    .eye.right { right: 25px; }
+
+    /* 眉毛（angry 时出现） */
+    .brow {
+        position: absolute; top: 26px; z-index: 3;
+        width: 18px; height: 3px; border-radius: 2px;
+        background: #46301f; opacity: 0;
+        transition: opacity .18s ease;
+    }
+    .brow.left  { left: 18px; transform: rotate(14deg); }
+    .brow.right { right: 18px; transform: rotate(-14deg); }
+
+    /* 腮红 */
+    .blush {
+        position: absolute; top: 56px; z-index: 2;
+        width: 15px; height: 8px; border-radius: 50%;
+        background: rgba(255, 110, 110, .38);
+        transition: all .18s ease;
+    }
+    .blush.left  { left: 12px; }
+    .blush.right { right: 12px; }
+
+    /* 嘴（SVG 由 JS 切换 innerHTML） */
+    .mouth {
+        position: absolute; left: 50%; top: 60px; z-index: 2;
+        width: 18px; height: 12px;
+        transform: translateX(-50%);
+    }
+    .mouth svg { width: 100%; height: 100%; display: block; }
+
+    /* 心情角标（💤/💢/✨…） */
+    #moodTag {
+        position: absolute; right: 8px; bottom: 14px; z-index: 6;
+        font-size: 20px; opacity: 0; transform: scale(.4);
+        transition: all .22s ease;
+    }
+    #moodTag.show { opacity: 1; transform: scale(1); }
+
+    /* ---------- mood 变体 ---------- */
+    body.mood-happy .eye {
+        height: 6px; margin-top: 6px;
+        border-radius: 40%; background: #46301f;
+    }
+    body.mood-happy .blush { background: rgba(255, 110, 110, .55); }
+
+    body.mood-sleepy .eye {
+        height: 3px; margin-top: 8px;
+        border-radius: 2px;
+    }
+    body.mood-sleepy .head { box-shadow: inset -5px -9px 16px rgba(186,116,36,.28), 0 0 0 0 transparent; }
+    body.mood-sleepy #pet { animation-duration: 5s; }
+
+    body.mood-sad .eye { height: 11px; border-radius: 50% 50% 60% 60%; }
+    body.mood-sad .eye.left  { transform: translateY(2px); }
+    body.mood-sad .eye.right { transform: translateY(2px); }
+    body.mood-sad .mouth { top: 62px; }
+
+    body.mood-angry .brow { opacity: 1; }
+    body.mood-angry .eye  { height: 10px; border-radius: 45% 45% 55% 55%; }
+    body.mood-angry .eye.left  { transform: translateY(-2px); }
+    body.mood-angry .eye.right { transform: translateY(-2px); }
+
+    body.mood-shy .eye  { width: 7px; height: 10px; }
+    body.mood-shy .eye.left  { transform: translateX(-3px) translateY(4px); }
+    body.mood-shy .eye.right { transform: translateX(3px) translateY(4px); }
+    body.mood-shy .blush { width: 17px; height: 10px; background: rgba(255, 90, 90, .55); }
+    body.mood-shy .mouth { top: 62px; }
+</style>
+</head>
+<body class="mood-neutral">
+
+<div id="stage">
+    <div id="bubble"></div>
+
+    <div id="pet">
+        <div class="ear left"></div>
+        <div class="ear right"></div>
+        <div class="head">
+            <div class="brow left"></div>
+            <div class="brow right"></div>
+            <div class="eye left"></div>
+            <div class="eye right"></div>
+            <div class="blush left"></div>
+            <div class="blush right"></div>
+            <div class="mouth"><svg viewBox="0 0 18 12"><path d="M5.5,6 Q9,8.6 12.5,6" stroke="#46301f" stroke-width="2" fill="none" stroke-linecap="round"/></svg></div>
+        </div>
+    </div>
+
+    <div id="moodTag"></div>
+</div>
+
+<script>
+"use strict";
+
+/* 嘴巴 SVG 表（不同 mood 的嘴型） */
+var MOUTHS = {
+    neutral: '<svg viewBox="0 0 18 12"><path d="M5.5,6 Q9,8.6 12.5,6" stroke="#46301f" stroke-width="2" fill="none" stroke-linecap="round"/></svg>',
+    happy:   '<svg viewBox="0 0 18 12"><path d="M3.6,5 Q9,11 14.4,5" stroke="#46301f" stroke-width="2" fill="none" stroke-linecap="round"/></svg>',
+    sleepy:  '<svg viewBox="0 0 18 12"><path d="M6.5,7.2 Q9,8.8 11.5,7.2" stroke="#46301f" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg>',
+    sad:     '<svg viewBox="0 0 18 12"><path d="M4.2,3.4 Q9,8.6 13.8,3.4" stroke="#46301f" stroke-width="2" fill="none" stroke-linecap="round"/></svg>',
+    angry:   '<svg viewBox="0 0 18 12"><path d="M4.5,6.6 L13.5,6.6" stroke="#46301f" stroke-width="2.2" stroke-linecap="round"/></svg>',
+    shy:     '<svg viewBox="0 0 18 12"><ellipse cx="9" cy="6.4" rx="3.6" ry="2.7" fill="none" stroke="#46301f" stroke-width="1.8"/></svg>'
+};
+
+/* 心情角标 */
+var MOOD_TAGS = {
+    happy:  "✨", sleepy: "💤", sad: "💧",
+    angry:  "💢", shy:    "😳", neutral: ""
+};
+
+var bubbleEl   = document.getElementById("bubble");
+var moodTagEl  = document.getElementById("moodTag");
+var bubbleTimer = null;
+var tagTimer    = null;
+
+/**
+ * 显示一条气泡（Kotlin 侧 window.showBubble('...') 调用）。
+ * 连续调用会替换内容并重置消失计时。
+ */
+window.showBubble = function (text) {
+    if (!text) return;
+    bubbleEl.textContent = text;
+    bubbleEl.classList.add("show");
+    clearTimeout(bubbleTimer);
+    bubbleTimer = setTimeout(function () {
+        bubbleEl.classList.remove("show");
+    }, 3600);
+};
+
+/**
+ * 切换心情（Kotlin 侧 window.setMood('happy') 调用）。
+ * 支持 happy / sleepy / sad / angry / shy / neutral，未知值回落 neutral。
+ */
+window.setMood = function (mood) {
+    var m = MOUTHS[mood] ? mood : "neutral";
+    document.body.className = "mood-" + m;
+    document.querySelector(".mouth").innerHTML = MOUTHS[m];
+    moodTagEl.textContent = MOOD_TAGS[m];
+    if (MOOD_TAGS[m]) {
+        moodTagEl.classList.add("show");
+        clearTimeout(tagTimer);
+        tagTimer = setTimeout(function () {
+            moodTagEl.classList.remove("show");
+        }, 3000);
+    } else {
+        moodTagEl.classList.remove("show");
+    }
+};
+
+/* 就绪后默认打声招呼（本机音效由 Kotlin 侧通知承担，这里轻量即可） */
+document.addEventListener("DOMContentLoaded", function () {
+    window.setMood("happy");
+    window.showBubble("阿衍来啦！点我跟我玩～");
+});
+</script>
+</body>
+</html>
